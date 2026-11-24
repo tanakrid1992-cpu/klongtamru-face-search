@@ -1,6 +1,6 @@
 /** ระบบค้นหารูปด้วยใบหน้า (Face Photo Finder) — Google Apps Script */
 const CONFIG = {
-  ROOT_FOLDER_ID: '1fEpo_sKao0t1otMenVwFANECO5z_hw-T',   // โฟลเดอร์หลัก (โฟลเดอร์ย่อย = อัลบั้ม/กิจกรรม)
+  ROOT_FOLDER_ID: '1JPcHUl3zoTDhX5de43RsinUeqHzTEjYO',   // โฟลเดอร์หลัก (โฟลเดอร์ย่อย = อัลบั้ม/กิจกรรม)
   SHEET_ID: '',                                    // เว้นว่าง = สร้างชีตดัชนีให้อัตโนมัติ
   ADMIN_PASSWORD: 'admin1234',                     // เปลี่ยนก่อนใช้งานจริง
   ORG_NAME: 'เทศบาลตำบลคลองตำหรุ',
