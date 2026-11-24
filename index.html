@@ -50,6 +50,8 @@ input[type=range]{accent-color:var(--a2);width:150px}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:16px;scrollbar-width:none}
 .chip{white-space:nowrap;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--txt);cursor:pointer;font:inherit;font-size:13px}
 .chip.on{background:linear-gradient(135deg,var(--a1),var(--a2));border-color:transparent}
+.tabs{display:flex;gap:6px;max-width:420px;margin:22px auto 0;padding:6px;border-radius:16px}.tab{flex:1;padding:10px;border:0;border-radius:12px;background:none;color:var(--mut);font:inherit;font-weight:500;cursor:pointer}.tab.on{background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff}
+#gallery{display:none;padding:24px 0 60px}#more{height:60px;display:grid;place-items:center;color:var(--mut);font-size:13px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .card{position:relative;aspect-ratio:3/4;border-radius:16px;overflow:hidden;cursor:pointer;background:#141a33;border:1px solid var(--line);animation:pop .45s both;animation-delay:var(--d)}
 @keyframes pop{from{opacity:0;transform:translateY(14px) scale(.97)}}
@@ -90,6 +92,13 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 30px}
 </div></header>
 
 <main class="wrap">
+  <div class="tabs glass" id="tabs"><button class="tab on" data-t="search">🔍 ค้นหาด้วยใบหน้า</button><button class="tab" data-t="all">🖼️ รูปทั้งหมด</button></div>
+  <section id="gallery">
+    <div class="bar glass"><h2>รูปทั้งหมด <span id="gcount">0</span> รูป</h2><span style="color:var(--mut);font-size:13px">เลื่อนลงเพื่อดูเพิ่ม • แตะรูปเพื่อขยาย</span></div>
+    <div class="chips" id="gchips"></div>
+    <div class="grid" id="ggrid"></div>
+    <div id="more"></div>
+  </section>
   <section id="user">
     <div class="hero">
       <h1>ค้นหา<span class="grad">รูปของคุณ</span><br>ด้วยใบหน้าเพียงรูปเดียว</h1>
@@ -242,10 +251,12 @@ function render() {
       <div class="meta"><span>${esc(r.album)}</span><a class="dl" href="${dlUrl(r.id)}" target="_blank" title="ดาวน์โหลด">⬇</a></div>
     </div>`).join('') : '<div class="empty" style="grid-column:1/-1">ไม่พบรูปในระดับความเข้มงวดนี้</div>';
 }
-function openLb(i) {
-  idx = (i + shown.length) % shown.length; const r = shown[idx];
+let lbList = [];
+function openLb(i, list) {
+  if (list) lbList = list;
+  idx = (i + lbList.length) % lbList.length; const r = lbList[idx];
   $('#lbImg').src = thumb(r.id, 1600);
-  $('#lbCap').textContent = `${r.album} • ${r.name} • ${idx + 1}/${shown.length}`;
+  $('#lbCap').textContent = `${r.album} • ${r.name} • ${idx + 1}/${lbList.length}`;
   $('#lbDl').href = dlUrl(r.id); $('#lbOpen').href = `https://drive.google.com/file/d/${r.id}/view`;
   $('#lb').classList.add('on');
 }
@@ -294,13 +305,50 @@ const drop = $('#drop');
 drop.addEventListener('drop', e => onSelfie(e.dataTransfer.files[0]));
 $('#th').addEventListener('input', render);
 $('#chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { album = b.dataset.a; render(); } });
-$('#grid').addEventListener('click', e => { if (e.target.closest('.dl')) return; const c = e.target.closest('.card'); if (c) openLb(+c.dataset.i); });
+$('#grid').addEventListener('click', e => { if (e.target.closest('.dl')) return; const c = e.target.closest('.card'); if (c) openLb(+c.dataset.i, shown); });
 $('#lbX').onclick = () => $('#lb').classList.remove('on');
 $('#lbP').onclick = () => openLb(idx - 1); $('#lbN').onclick = () => openLb(idx + 1);
 document.addEventListener('keydown', e => { if (!$('#lb').classList.contains('on')) return; if (e.key === 'Escape') $('#lbX').click(); if (e.key === 'ArrowLeft') openLb(idx - 1); if (e.key === 'ArrowRight') openLb(idx + 1); });
 let tx = 0; $('#lb').addEventListener('touchstart', e => tx = e.touches[0].clientX, { passive: true });
 $('#lb').addEventListener('touchend', e => { const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) openLb(idx + (dx < 0 ? 1 : -1)); });
-$('#toggleAdmin').onclick = () => { const a = $('#admin'), on = a.style.display !== 'block'; a.style.display = on ? 'block' : 'none'; $('#user').style.display = on ? 'none' : ''; $('#results').style.display = on ? 'none' : (all.length ? 'block' : 'none'); };
+/* ---------- GALLERY (รูปทั้งหมด) ---------- */
+let photos = null, gAlbum = 'ทั้งหมด', gList = [], gShown = 0, tab = 'search';
+const PAGE = 48;
+const card = (r, i) => `<div class="card" style="--d:${(i % PAGE) * 20}ms" data-i="${i}"><img loading="lazy" src="${thumb(r.id, 500)}" alt="" onerror="this.src='${PH}'"><div class="meta"><span>${esc(r.album)}</span><a class="dl" href="${dlUrl(r.id)}" target="_blank" title="ดาวน์โหลด">⬇</a></div></div>`;
+async function loadGallery() {
+  if (photos) return renderGallery();
+  $('#more').textContent = '⏳ กำลังโหลดรูป...';
+  try { photos = await run('listPhotos'); renderGallery(); }
+  catch (e) { $('#more').textContent = '⚠️ ' + e.message; }
+}
+function renderGallery() {
+  const albums = ['ทั้งหมด', ...new Set(photos.map(p => p.album))];
+  $('#gchips').innerHTML = albums.map(a => `<button class="chip ${a === gAlbum ? 'on' : ''}" data-a="${esc(a)}">${esc(a)}${a === 'ทั้งหมด' ? '' : ' (' + photos.filter(p => p.album === a).length + ')'}</button>`).join('');
+  gList = gAlbum === 'ทั้งหมด' ? photos : photos.filter(p => p.album === gAlbum);
+  $('#gcount').textContent = gList.length; $('#ggrid').innerHTML = ''; gShown = 0; moreGallery();
+}
+function moreGallery() {
+  if (!gList.length) { $('#more').textContent = 'ยังไม่มีรูปในระบบ'; return; }
+  $('#ggrid').insertAdjacentHTML('beforeend', gList.slice(gShown, gShown + PAGE).map((r, k) => card(r, gShown + k)).join(''));
+  gShown = Math.min(gShown + PAGE, gList.length);
+  $('#more').textContent = gShown < gList.length ? 'เลื่อนลงเพื่อโหลดเพิ่ม...' : `แสดงครบ ${gList.length} รูปแล้ว`;
+}
+new IntersectionObserver(es => { if (es[0].isIntersecting && tab === 'all' && photos && gShown < gList.length) moreGallery(); }, { rootMargin: '600px' }).observe($('#more'));
+$('#gchips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { gAlbum = b.dataset.a; renderGallery(); } });
+$('#ggrid').addEventListener('click', e => { if (e.target.closest('.dl')) return; const c = e.target.closest('.card'); if (c) openLb(+c.dataset.i, gList); });
+function setTab(t) {
+  tab = t; document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  $('#user').style.display = t === 'search' ? '' : 'none';
+  $('#results').style.display = t === 'search' && all.length ? 'block' : 'none';
+  $('#gallery').style.display = t === 'all' ? 'block' : 'none';
+  if (t === 'all') loadGallery();
+}
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) setTab(b.dataset.t); });
+$('#toggleAdmin').onclick = () => {
+  const a = $('#admin'), on = a.style.display !== 'block'; a.style.display = on ? 'block' : 'none';
+  $('#tabs').style.display = on ? 'none' : '';
+  if (on) { ['#user', '#results', '#gallery'].forEach(s => $(s).style.display = 'none'); } else { photos = null; setTab(tab); }
+};
 $('#login').onclick = adminCheck; $('#scan').onclick = adminScan; $('#stop').onclick = () => { stopFlag = true; };
 $('#reset').onclick = async () => { if (!confirm('ยืนยันล้างดัชนีใบหน้าทั้งหมด? (รูปใน Drive ไม่ถูกลบ)')) return; try { await run('adminReset', $('#pw').value); log('🗑 ล้างดัชนีแล้ว'); adminCheck(); } catch (e) { toast(e.message); } };
 

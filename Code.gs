@@ -9,7 +9,7 @@ const CONFIG = {
 };
 
 /* ---------- API (เรียกจาก GitHub Pages) ---------- */
-const ACTIONS = { searchFaces, adminListPending, adminGetImage, adminSave, adminReset };
+const ACTIONS = { searchFaces, listPhotos, adminListPending, adminGetImage, adminSave, adminReset };
 function doGet() { return json_({ ok: true, org: CONFIG.ORG_NAME }); }
 function doPost(e) {
   try {
@@ -74,6 +74,15 @@ function searchFaces(input) {
   faces.forEach(f => { if (f.m <= CONFIG.MAX_DIST && (!best[f.id] || f.m < best[f.id].dist))
     best[f.id] = { id: f.id, name: f.name, album: f.album, dist: +f.m.toFixed(4) }; });
   return { indexed: faces.length, results: Object.values(best).sort((a, b) => a.dist - b.dist).slice(0, 500) };
+}
+
+/* ---------- Public: รายการรูปทั้งหมด (ที่สแกนแล้ว) ใหม่สุดก่อน ---------- */
+function listPhotos() {
+  const sh = sheets_().files, n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, 5).getValues()
+    .map(r => ({ id: r[0], name: r[1], album: r[2] || 'ทั่วไป', t: +new Date(r[4]) || 0 }))
+    .sort((a, b) => b.t - a.t);
 }
 
 /* ---------- Admin ---------- */
