@@ -52,6 +52,7 @@ input[type=range]{accent-color:var(--a2);width:150px}
 .chip.on{background:linear-gradient(135deg,var(--a1),var(--a2));border-color:transparent}
 .tabs{display:flex;gap:6px;max-width:420px;margin:22px auto 0;padding:6px;border-radius:16px}.tab{flex:1;padding:10px;border:0;border-radius:12px;background:none;color:var(--mut);font:inherit;font-weight:500;cursor:pointer}.tab.on{background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff}
 #gallery{display:none;padding:24px 0 60px}#more{height:60px;display:grid;place-items:center;color:var(--mut);font-size:13px}
+.fb{position:absolute;top:8px;right:8px;display:flex;gap:6px;z-index:2}.fb button{width:32px;height:32px;border-radius:50%;border:0;cursor:pointer;font-size:15px;color:#fff;background:rgba(10,15,31,.7);backdrop-filter:blur(6px)}.fb button[data-fb=yes]:hover,.card.yes .fb button[data-fb=yes]{background:#10b981}.fb button[data-fb=no]:hover{background:#ef4444}.card.yes{outline:3px solid #10b981}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .card{position:relative;aspect-ratio:3/4;border-radius:16px;overflow:hidden;cursor:pointer;background:#141a33;border:1px solid var(--line);animation:pop .45s both;animation-delay:var(--d)}
 @keyframes pop{from{opacity:0;transform:translateY(14px) scale(.97)}}
@@ -112,13 +113,14 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 30px}
       </div>
       <div class="status" id="status">กำลังเตรียมระบบ AI...</div>
       <div class="refs" id="refs"></div>
-      <div class="hint">💡 เพิ่มรูปหน้าตัวเองได้สูงสุด 3 มุม (หน้าตรง/เอียง/ใส่แว่น) ระบบจะค้นแม่นขึ้น<br>🔒 ใบหน้าของคุณถูกประมวลผลบนอุปกรณ์นี้ ไม่มีการเก็บรูปเซลฟี่ไว้ในระบบ</div>
+      <div class="hint">✨ หลังค้นหา กด ✓ ที่รูปที่ใช่คุณ แล้วกด "ค้นหาเพิ่ม" ระบบจะเรียนรู้และหาเจอมากขึ้น<br>💡 เพิ่มรูปหน้าตัวเองได้สูงสุด 3 มุม (หน้าตรง/เอียง/ใส่แว่น) ระบบจะค้นแม่นขึ้น<br>🔒 ใบหน้าของคุณถูกประมวลผลบนอุปกรณ์นี้ ไม่มีการเก็บรูปเซลฟี่ไว้ในระบบ</div>
     </div>
   </section>
 
   <section id="results">
     <div class="bar glass">
       <h2>พบ <span id="count">0</span> รูป</h2>
+      <button class="btn" id="refine" style="display:none">🔁 ค้นหาเพิ่มจากรูปที่ยืนยัน (<span id="nfb">0</span>)</button>
       <div class="range">เข้มงวด<input type="range" id="th" min="0.40" max="0.65" step="0.01" value="0.55">ยืดหยุ่น</div>
     </div>
     <div class="chips" id="chips"></div>
@@ -227,6 +229,7 @@ async function onSelfie(file) {
     if (refs.length >= 3) refs.shift();
     refs.push({ img: cv.toDataURL('image/jpeg', .6), d: Array.from(d.descriptor, v => +v.toFixed(4)) }); drawRefs();
     status(`☁️ กำลังค้นหาอัจฉริยะ (ใช้ใบหน้าอ้างอิง ${refs.length} รูป)...`);
+    fb.confirm.clear(); fb.reject.clear(); updFb();
     const res = await run('searchFaces', refs.map(r => r.d));
     if (!res.indexed) { status('⚠️ ยังไม่มีข้อมูลใบหน้าในระบบ — ผู้ดูแลต้องกด ⚙️ แล้วสแกนรูปก่อน', 'err'); return; }
     all = res.results; album = 'ทั้งหมด'; render();
@@ -238,16 +241,17 @@ async function onSelfie(file) {
   finally { face.classList.remove('scan'); URL.revokeObjectURL(url); }
 }
 function render() {
-  const th = +$('#th').value, base = all.filter(r => r.dist <= th);
+  const th = +$('#th').value, base = all.filter(r => r.dist <= th && !fb.reject.has(r.id));
   const albums = ['ทั้งหมด', ...new Set(base.map(r => r.album))];
   if (!albums.includes(album)) album = 'ทั้งหมด';
   $('#chips').innerHTML = albums.map(a => `<button class="chip ${a === album ? 'on' : ''}" data-a="${esc(a)}">${esc(a)}${a === 'ทั้งหมด' ? '' : ' (' + base.filter(r => r.album === a).length + ')'}</button>`).join('');
   shown = album === 'ทั้งหมด' ? base : base.filter(r => r.album === album);
   $('#count').textContent = shown.length;
   $('#grid').innerHTML = shown.length ? shown.map((r, i) => `
-    <div class="card" style="--d:${Math.min(i, 20) * 35}ms" data-i="${i}">
+    <div class="card ${fb.confirm.has(r.id) ? 'yes' : ''}" style="--d:${Math.min(i, 20) * 35}ms" data-i="${i}">
+      <div class="fb"><button data-fb="yes" title="ใช่ฉัน">✓</button><button data-fb="no" title="ไม่ใช่ฉัน">✕</button></div>
       <img loading="lazy" src="${thumb(r.id, 500)}" alt="" onerror="this.src='${PH}'">
-      <span class="badge">${r.dist < .45 ? '🟢 ตรงมาก' : r.dist < .53 ? '🟡 น่าจะใช่' : '🟠 อาจใช่'}</span>
+      <span class="badge">${fb.confirm.has(r.id) ? '✅ ยืนยันแล้ว' : r.dist < .45 ? '🟢 ตรงมาก' : r.dist < .53 ? '🟡 น่าจะใช่' : '🟠 อาจใช่'}</span>
       <div class="meta"><span>${esc(r.album)}</span><a class="dl" href="${dlUrl(r.id)}" target="_blank" title="ดาวน์โหลด">⬇</a></div>
     </div>`).join('') : '<div class="empty" style="grid-column:1/-1">ไม่พบรูปในระดับความเข้มงวดนี้</div>';
 }
@@ -305,7 +309,25 @@ const drop = $('#drop');
 drop.addEventListener('drop', e => onSelfie(e.dataTransfer.files[0]));
 $('#th').addEventListener('input', render);
 $('#chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { album = b.dataset.a; render(); } });
-$('#grid').addEventListener('click', e => { if (e.target.closest('.dl')) return; const c = e.target.closest('.card'); if (c) openLb(+c.dataset.i, shown); });
+const fb = { confirm: new Set(), reject: new Set() };
+function updFb() { $('#nfb').textContent = fb.confirm.size; $('#refine').style.display = fb.confirm.size ? '' : 'none'; }
+$('#refine').onclick = async () => {
+  const b = $('#refine'); b.disabled = true; status('🔁 กำลังเรียนรู้จากรูปที่คุณยืนยันและค้นหาเพิ่ม...');
+  try {
+    const before = shown.length;
+    const res = await run('searchFaces', refs.map(r => r.d), { confirm: [...fb.confirm], reject: [...fb.reject] });
+    all = res.results; render();
+    status(`✅ พบ ${shown.length} รูป (เพิ่มขึ้น ${Math.max(shown.length - before, 0)} รูป) — ยืนยันเพิ่มแล้วกดค้นหาซ้ำได้เรื่อย ๆ`, 'ok');
+  } catch (e) { status('⚠️ ' + e.message, 'err'); }
+  b.disabled = false;
+};
+$('#grid').addEventListener('click', e => {
+  const f = e.target.closest('[data-fb]');
+  if (f) { e.stopPropagation(); const id = shown[+f.closest('.card').dataset.i].id;
+    if (f.dataset.fb === 'yes') { fb.confirm.has(id) ? fb.confirm.delete(id) : fb.confirm.add(id); fb.reject.delete(id); }
+    else { fb.reject.add(id); fb.confirm.delete(id); toast('ซ่อนรูปนี้แล้ว'); }
+    updFb(); render(); return; }
+  if (e.target.closest('.dl')) return; const c = e.target.closest('.card'); if (c) openLb(+c.dataset.i, shown); });
 $('#lbX').onclick = () => $('#lb').classList.remove('on');
 $('#lbP').onclick = () => openLb(idx - 1); $('#lbN').onclick = () => openLb(idx + 1);
 document.addEventListener('keydown', e => { if (!$('#lb').classList.contains('on')) return; if (e.key === 'Escape') $('#lbX').click(); if (e.key === 'ArrowLeft') openLb(idx - 1); if (e.key === 'ArrowRight') openLb(idx + 1); });
