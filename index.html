@@ -40,6 +40,7 @@ header .wrap{display:flex;align-items:center;gap:12px;height:64px}
 .btn.danger{background:linear-gradient(135deg,#ef4444,#f97316)}
 .status{margin-top:16px;min-height:22px;color:var(--mut);font-size:14px}
 .status.err{color:var(--err)}.status.ok{color:var(--ok)}
+.refs{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}.refs img{width:46px;height:46px;border-radius:50%;object-fit:cover;border:2px solid var(--a2)}.refs button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--txt);border-radius:99px;padding:0 12px;cursor:pointer}
 .hint{margin-top:14px;font-size:12px;color:var(--mut);opacity:.8}
 #results{padding:30px 0 60px;display:none}
 .bar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;padding:16px 18px;margin-bottom:16px}
@@ -101,14 +102,15 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 30px}
         <label class="btn ghost">🖼️ เลือกรูปจากเครื่อง<input type="file" accept="image/*" hidden id="pick"></label>
       </div>
       <div class="status" id="status">กำลังเตรียมระบบ AI...</div>
-      <div class="hint">🔒 ใบหน้าของคุณถูกประมวลผลบนอุปกรณ์นี้ ไม่มีการเก็บรูปเซลฟี่ไว้ในระบบ</div>
+      <div class="refs" id="refs"></div>
+      <div class="hint">💡 เพิ่มรูปหน้าตัวเองได้สูงสุด 3 มุม (หน้าตรง/เอียง/ใส่แว่น) ระบบจะค้นแม่นขึ้น<br>🔒 ใบหน้าของคุณถูกประมวลผลบนอุปกรณ์นี้ ไม่มีการเก็บรูปเซลฟี่ไว้ในระบบ</div>
     </div>
   </section>
 
   <section id="results">
     <div class="bar glass">
       <h2>พบ <span id="count">0</span> รูป</h2>
-      <div class="range">เข้มงวด<input type="range" id="th" min="0.40" max="0.60" step="0.01" value="0.50">ยืดหยุ่น</div>
+      <div class="range">เข้มงวด<input type="range" id="th" min="0.40" max="0.65" step="0.01" value="0.55">ยืดหยุ่น</div>
     </div>
     <div class="chips" id="chips"></div>
     <div class="grid" id="grid"></div>
@@ -175,7 +177,28 @@ async function toCanvas(src, max) {
   const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); return c;
 }
-const OPT = () => new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+const OPT = (c = 0.5) => new faceapi.SsdMobilenetv1Options({ minConfidence: c, maxResults: 200 });
+let refs = [];
+/* ตรวจจับใบหน้าแบบแบ่งภาพย่อย (tiling) เพื่อจับหน้าเล็ก ๆ ในรูปหมู่ แล้วตัดหน้าซ้ำด้วย IoU */
+async function detectSmart(c) {
+  const out = [], add = (dets, ox, oy) => dets.forEach(d => { const b = d.detection.box; out.push({ x: b.x + ox, y: b.y + oy, w: b.width, h: b.height, s: d.detection.score, desc: d.descriptor }); });
+  add(await faceapi.detectAllFaces(c, OPT(0.35)).withFaceLandmarks().withFaceDescriptors(), 0, 0);
+  if (Math.max(c.width, c.height) >= 1000) {
+    const tw = Math.round(c.width * 0.6), th = Math.round(c.height * 0.6);
+    for (const [ox, oy] of [[0, 0], [c.width - tw, 0], [0, c.height - th], [c.width - tw, c.height - th], [(c.width - tw) >> 1, (c.height - th) >> 1]]) {
+      const t = document.createElement('canvas'); t.width = tw; t.height = th; t.getContext('2d').drawImage(c, ox, oy, tw, th, 0, 0, tw, th);
+      add(await faceapi.detectAllFaces(t, OPT(0.4)).withFaceLandmarks().withFaceDescriptors(), ox, oy);
+    }
+  }
+  const iou = (a, b) => { const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)), y = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)), i = x * y; return i / (a.w * a.h + b.w * b.h - i); };
+  const keep = [];
+  out.filter(f => f.w >= 24).sort((a, b) => b.s - a.s).forEach(f => { if (!keep.some(k => iou(k, f) > 0.3)) keep.push(f); });
+  return keep;
+}
+function drawRefs() {
+  $('#refs').innerHTML = refs.map(r => `<img src="${r.img}">`).join('') + (refs.length ? '<button id="clearRefs">ล้าง</button>' : '');
+  const b = $('#clearRefs'); if (b) b.onclick = () => { refs = []; all = []; drawRefs(); $('#results').style.display = 'none'; status('ล้างแล้ว อัปโหลดรูปใหม่ได้เลย', 'ok'); };
+}
 
 /* ---------- USER ---------- */
 async function onSelfie(file) {
@@ -192,11 +215,14 @@ async function onSelfie(file) {
     const b = d.detection.box, pad = b.width * .35, cv = document.createElement('canvas'); cv.width = cv.height = 340;
     cv.getContext('2d').drawImage(c, b.x - pad, b.y - pad, b.width + pad * 2, b.height + pad * 2, 0, 0, 340, 340);
     face.innerHTML = ''; face.appendChild(cv);
-    status('☁️ กำลังค้นหาในคลังรูปภาพ...');
-    all = await run('searchFaces', Array.from(d.descriptor, v => +v.toFixed(4)));
-    album = 'ทั้งหมด'; render();
+    if (refs.length >= 3) refs.shift();
+    refs.push({ img: cv.toDataURL('image/jpeg', .6), d: Array.from(d.descriptor, v => +v.toFixed(4)) }); drawRefs();
+    status(`☁️ กำลังค้นหาอัจฉริยะ (ใช้ใบหน้าอ้างอิง ${refs.length} รูป)...`);
+    const res = await run('searchFaces', refs.map(r => r.d));
+    if (!res.indexed) { status('⚠️ ยังไม่มีข้อมูลใบหน้าในระบบ — ผู้ดูแลต้องกด ⚙️ แล้วสแกนรูปก่อน', 'err'); return; }
+    all = res.results; album = 'ทั้งหมด'; render();
     const n = shown.length;
-    status(n ? `✅ พบรูปของคุณ ${n} รูป` : 'ยังไม่พบรูปที่ตรงกัน ลองเลื่อนแถบไปทาง "ยืดหยุ่น" หรือใช้รูปอื่น', n ? 'ok' : '');
+    status(n ? `✅ พบรูปของคุณ ${n} รูป (ค้นจาก ${res.indexed.toLocaleString()} ใบหน้า)` : `ยังไม่พบใน ${res.indexed.toLocaleString()} ใบหน้า — ลองเลื่อนแถบไปทาง "ยืดหยุ่น" หรือเพิ่มรูปมุมอื่น`, n ? 'ok' : '');
     $('#results').style.display = 'block';
     if (n) $('#results').scrollIntoView({ behavior: 'smooth' });
   } catch (e) { status('⚠️ ' + (e.message || e), 'err'); }
@@ -212,7 +238,7 @@ function render() {
   $('#grid').innerHTML = shown.length ? shown.map((r, i) => `
     <div class="card" style="--d:${Math.min(i, 20) * 35}ms" data-i="${i}">
       <img loading="lazy" src="${thumb(r.id, 500)}" alt="" onerror="this.src='${PH}'">
-      <span class="badge">${Math.round((1 - r.dist) * 100)}% ตรงกัน</span>
+      <span class="badge">${r.dist < .45 ? '🟢 ตรงมาก' : r.dist < .53 ? '🟡 น่าจะใช่' : '🟠 อาจใช่'}</span>
       <div class="meta"><span>${esc(r.album)}</span><a class="dl" href="${dlUrl(r.id)}" target="_blank" title="ดาวน์โหลด">⬇</a></div>
     </div>`).join('') : '<div class="empty" style="grid-column:1/-1">ไม่พบรูปในระดับความเข้มงวดนี้</div>';
 }
@@ -247,9 +273,8 @@ async function adminScan() {
     next = i + 1 < total ? fetchImg(pending[i + 1]) : null;
     try {
       if (src && src.err) throw new Error(src.err);
-      const c = await toCanvas(src, 1600);
-      const dets = await faceapi.detectAllFaces(c, OPT()).withFaceLandmarks().withFaceDescriptors();
-      const desc = dets.filter(d => d.detection.box.width >= 30).map(d => Array.from(d.descriptor, v => v.toFixed(4)).join(' '));
+      const c = await toCanvas(src, 2048);
+      const desc = (await detectSmart(c)).map(f => Array.from(f.desc, v => v.toFixed(4)).join(' '));
       await run('adminSave', pw, f, desc);
       faces += desc.length; files++;
       log(`✔ ${f.album} / ${f.name} — ${desc.length} ใบหน้า`);

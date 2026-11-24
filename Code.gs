@@ -4,8 +4,8 @@ const CONFIG = {
   SHEET_ID: '',                                    // เว้นว่าง = สร้างชีตดัชนีให้อัตโนมัติ
   ADMIN_PASSWORD: 'admin1234',                     // เปลี่ยนก่อนใช้งานจริง
   ORG_NAME: 'เทศบาลตำบลคลองตำหรุ',
-  THUMB_SIZE: 1600,                                // ขนาดภาพที่ใช้สแกนใบหน้า (px)
-  MAX_DIST: 0.6                                    // ระยะห่างสูงสุดที่ส่งกลับไปให้ผู้ใช้
+  THUMB_SIZE: 2048,                                // ขนาดภาพที่ใช้สแกนใบหน้า (px)
+  MAX_DIST: 0.65                                   // ระยะห่างสูงสุดที่ส่งกลับไปให้ผู้ใช้
 };
 
 /* ---------- API (เรียกจาก GitHub Pages) ---------- */
@@ -47,24 +47,33 @@ function sheets_() {
 
 function auth_(pw) { if (pw !== CONFIG.ADMIN_PASSWORD) throw new Error('รหัสผ่านไม่ถูกต้อง'); }
 
-/* ---------- Public: search ---------- */
-function searchFaces(desc) {
-  if (!Array.isArray(desc) || desc.length !== 128) throw new Error('ข้อมูลใบหน้าไม่ถูกต้อง');
-  const q = desc.map(Number), max2 = CONFIG.MAX_DIST * CONFIG.MAX_DIST;
+/* ---------- Public: smart search ----------
+ * รับใบหน้าอ้างอิงได้หลายรูป (หลายมุม) + Query Expansion:
+ * รอบ 1 หาใบหน้าที่ตรงมาก → นำมาเฉลี่ยเป็น "โปรไฟล์ใบหน้า" → รอบ 2 ค้นซ้ำเพื่อจับรูปมุมอื่น/แสงต่าง */
+function searchFaces(input) {
+  let qs = Array.isArray(input) && Array.isArray(input[0]) ? input : [input];
+  qs = qs.filter(q => Array.isArray(q) && q.length === 128).map(q => q.map(Number));
+  if (!qs.length) throw new Error('ข้อมูลใบหน้าไม่ถูกต้อง');
   const sh = sheets_().faces, n = sh.getLastRow();
-  if (n < 2) return [];
-  const rows = sh.getRange(2, 1, n - 1, 5).getValues(), best = {};
-  for (const r of rows) {
-    const d = String(r[4]).split(' ');
-    if (d.length !== 128) continue;
-    let s = 0, i = 0;
-    for (; i < 128; i++) { const x = +d[i] - q[i]; s += x * x; if (s > max2) break; }
-    if (i < 128) continue;
-    const dist = Math.sqrt(s);
-    if (!best[r[0]] || dist < best[r[0]].dist)
-      best[r[0]] = { id: r[0], name: r[1], album: r[2] || 'ทั่วไป', dist: +dist.toFixed(4) };
+  if (n < 2) return { indexed: 0, results: [] };
+  const lim = CONFIG.MAX_DIST * CONFIG.MAX_DIST;
+  const dist = (a, b) => { let s = 0; for (let i = 0; i < 128; i++) { const x = a[i] - b[i]; s += x * x; if (s > lim) return 9; } return Math.sqrt(s); };
+  const faces = sh.getRange(2, 1, n - 1, 5).getValues()
+    .map(r => ({ id: r[0], name: r[1], album: r[2] || 'ทั่วไป', d: String(r[4]).split(' ').map(Number) }))
+    .filter(f => f.d.length === 128);
+  const strong = [];
+  faces.forEach(f => { f.m = Math.min.apply(null, qs.map(q => dist(f.d, q))); if (f.m <= 0.42) strong.push(f); });
+  strong.sort((a, b) => a.m - b.m);
+  const pool = qs.concat(strong.slice(0, 12).map(f => f.d));
+  if (pool.length > qs.length) {
+    const cen = new Array(128).fill(0);
+    pool.forEach(p => p.forEach((v, i) => cen[i] += v / pool.length));
+    faces.forEach(f => { const v = dist(f.d, cen) + 0.03; if (v < f.m) f.m = v; });
   }
-  return Object.values(best).sort((a, b) => a.dist - b.dist).slice(0, 500);
+  const best = {};
+  faces.forEach(f => { if (f.m <= CONFIG.MAX_DIST && (!best[f.id] || f.m < best[f.id].dist))
+    best[f.id] = { id: f.id, name: f.name, album: f.album, dist: +f.m.toFixed(4) }; });
+  return { indexed: faces.length, results: Object.values(best).sort((a, b) => a.dist - b.dist).slice(0, 500) };
 }
 
 /* ---------- Admin ---------- */
