@@ -251,7 +251,7 @@ function render() {
     <div class="card ${fb.confirm.has(r.id) ? 'yes' : ''}" style="--d:${Math.min(i, 20) * 35}ms" data-i="${i}">
       <div class="fb"><button data-fb="yes" title="ใช่ฉัน">✓</button><button data-fb="no" title="ไม่ใช่ฉัน">✕</button></div>
       <img loading="lazy" src="${thumb(r.id, 500)}" alt="" onerror="this.src='${PH}'">
-      <span class="badge">${fb.confirm.has(r.id) ? '✅ ยืนยันแล้ว' : r.dist < .45 ? '🟢 ตรงมาก' : r.dist < .53 ? '🟡 น่าจะใช่' : '🟠 อาจใช่'}</span>
+      ${fb.confirm.has(r.id) ? '<span class="badge">✅ ยืนยันแล้ว</span>' : ''}
       <div class="meta"><span>${esc(r.album)}</span><a class="dl" href="${dlUrl(r.id)}" target="_blank" title="ดาวน์โหลด">⬇</a></div>
     </div>`).join('') : '<div class="empty" style="grid-column:1/-1">ไม่พบรูปในระดับความเข้มงวดนี้</div>';
 }
