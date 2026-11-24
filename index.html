@@ -151,7 +151,7 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 30px}
 <script>
 const MODEL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1/model/';
 const $ = s => document.querySelector(s);
-const API_URL = 'https://script.google.com/macros/s/AKfycbymD9uCl30V41O04ZHv18TqQRFs6h3cMig0Qg3Esx3o7ZzLtQW0VzyCTDBkudhTneST/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwzv1dOrWHfKZ8vghxMARmh7wIw9wj1C_xb6_btLMXRnWwQahUIwmsuL_R448Ji-_-a/exec';
 const run = async (action, ...args) => {
   const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, args }) });
   const j = await r.json(); if (!j.ok) throw new Error(j.error); return j.data;
